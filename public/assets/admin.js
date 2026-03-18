@@ -346,6 +346,7 @@ async function handleToolSubmit(event) {
     const body = {
       title: document.getElementById('title').value.trim(),
       description: document.getElementById('description').value.trim(),
+      sourceType,
       sortOrder: document.getElementById('sortOrder').value,
       enabledStudent: document.getElementById('enabledStudent').checked,
       enabledTeacher: document.getElementById('enabledTeacher').checked

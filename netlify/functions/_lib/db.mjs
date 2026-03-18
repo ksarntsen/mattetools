@@ -20,7 +20,7 @@ export function sql() {
 
   return {
     query(text, params = []) {
-      return cached(text, params);
+      return cached.query(text, params);
     }
   };
 }

@@ -37,7 +37,8 @@ function serializeTool(row) {
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    thumbnailUrl: `/api/media/${row.id}`
+    thumbnailUrl: `/api/media/${row.id}`,
+    launchUrl: row.source_type === 'link' ? row.external_url : `/apps/${row.slug}`
   };
 }
 
@@ -191,31 +192,35 @@ async function updateTool(req, id) {
     throw new HttpError(404, 'Tool not found.');
   }
 
-  const payload = parseToolPayload(body, { isCreate: false });
+  const title = body.title !== undefined ? String(body.title).trim() || existing.title : existing.title;
+  const description = body.description !== undefined ? String(body.description).trim() : existing.description;
+  const enabledStudent = body.enabledStudent !== undefined ? Boolean(body.enabledStudent) : existing.enabled_student;
+  const enabledTeacher = body.enabledTeacher !== undefined ? Boolean(body.enabledTeacher) : existing.enabled_teacher;
+  const sortOrder = body.sortOrder !== undefined
+    ? (Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0)
+    : existing.sort_order;
+  const thumbnailDataUrl = body.thumbnailDataUrl || existing.thumbnail_data_url;
 
   let sourceType = existing.source_type;
   let externalUrl = existing.external_url;
   let htmlContent = existing.html_content;
   let htmlFilename = existing.html_filename;
 
-  if (payload.sourceType === 'link') {
-    sourceType = 'link';
-    externalUrl = payload.externalUrl;
-    htmlContent = null;
-    htmlFilename = null;
-  } else if (payload.sourceType === 'upload') {
-    sourceType = 'upload';
-    externalUrl = null;
-    htmlContent = payload.htmlContent;
-    htmlFilename = payload.htmlFilename;
+  if (body.sourceType) {
+    if (body.sourceType !== 'link' && body.sourceType !== 'upload') {
+      throw badRequest('sourceType must be "link" or "upload".');
+    }
+    sourceType = body.sourceType;
+    if (sourceType === 'link') {
+      externalUrl = body.externalUrl !== undefined ? String(body.externalUrl).trim() : existing.external_url;
+      htmlContent = null;
+      htmlFilename = null;
+    } else {
+      htmlContent = body.htmlContent !== undefined ? String(body.htmlContent) : existing.html_content;
+      htmlFilename = body.htmlFilename !== undefined ? String(body.htmlFilename).trim() || 'app.html' : existing.html_filename;
+      externalUrl = null;
+    }
   }
-
-  const title = payload.title || existing.title;
-  const description = body.description !== undefined ? payload.description : existing.description;
-  const thumbnailDataUrl = payload.thumbnailDataUrl || existing.thumbnail_data_url;
-  const enabledStudent = body.enabledStudent !== undefined ? payload.enabledStudent : existing.enabled_student;
-  const enabledTeacher = body.enabledTeacher !== undefined ? payload.enabledTeacher : existing.enabled_teacher;
-  const sortOrder = body.sortOrder !== undefined ? payload.sortOrder : existing.sort_order;
 
   const rows = await db.query(
     `UPDATE tools
@@ -293,7 +298,7 @@ export default async (req) => {
         status: 204,
         headers: {
           'access-control-allow-origin': '*',
-          'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
+          'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
           'access-control-allow-headers': 'content-type,x-admin-password'
         }
       });
@@ -331,22 +336,22 @@ export default async (req) => {
       throw new HttpError(401, 'Unauthorized.');
     }
 
-    if (path === '/admin-tools' && req.method === 'GET') {
+    if (path === '/admin/tools' && req.method === 'GET') {
       const tools = await listAdminTools();
       return json({ ok: true, tools });
     }
 
-    if (path === '/admin-tools' && req.method === 'POST') {
+    if (path === '/admin/tools' && req.method === 'POST') {
       return await createTool(req);
     }
 
-    if (path.startsWith('/admin-tools/')) {
-      const id = Number(path.split('/')[2]);
+    if (path.startsWith('/admin/tools/')) {
+      const id = Number(path.split('/')[3]);
       if (!Number.isFinite(id)) {
         throw badRequest('Invalid tool id.');
       }
 
-      if (req.method === 'PUT') {
+      if (req.method === 'PUT' || req.method === 'PATCH') {
         return await updateTool(req, id);
       }
 
