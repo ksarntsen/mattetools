@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mattetools – admin</title>
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body data-page="admin">
+  <header class="site-header admin-header">
+    <div class="container header-inner">
+      <div>
+        <p class="eyebrow">Mattetools</p>
+        <h1>Admin</h1>
+        <p class="lead">Legg til, rediger, slå av og slå på verktøy for elev- og lærersiden.</p>
+      </div>
+      <nav class="top-nav">
+        <a href="/mattetoolsstudent.html">Elevside</a>
+        <a href="/mattetoolsteacher.html">Lærerside</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container main-spacing admin-layout">
+    <section class="panel auth-panel">
+      <div class="panel-head">
+        <div>
+          <h2>Admin-tilgang</h2>
+          <p class="muted">Passordet sjekkes av Netlify Function mot <code>ADMIN_PASSWORD</code>.</p>
+        </div>
+      </div>
+      <form id="authForm" class="stack-form compact-form">
+        <div class="field-row single">
+          <label>
+            <span>Admin-passord</span>
+            <input id="adminPassword" name="adminPassword" type="password" autocomplete="current-password" required />
+          </label>
+        </div>
+        <div class="button-row">
+          <button class="primary-button" type="submit">Lagre økt</button>
+          <button class="ghost-button" id="logoutButton" type="button">Tøm økt</button>
+          <button class="ghost-button" id="reloadAdminButton" type="button">Last inn verktøy</button>
+        </div>
+      </form>
+      <div id="adminStatus" class="status-line">Ikke lastet inn ennå.</div>
+    </section>
+
+    <section class="panel form-panel">
+      <div class="panel-head">
+        <div>
+          <h2 id="editorTitle">Legg til verktøy</h2>
+          <p class="muted">Enten ekstern lenke eller opplastet én-fil-HTML. Thumbnail er påkrevd ved oppretting.</p>
+        </div>
+      </div>
+
+      <form id="toolForm" class="stack-form" novalidate>
+        <input id="editingId" type="hidden" value="" />
+
+        <div class="field-row two-cols">
+          <label>
+            <span>Tittel</span>
+            <input id="title" name="title" type="text" maxlength="120" required />
+          </label>
+          <label>
+            <span>Rekkefølge</span>
+            <input id="sortOrder" name="sortOrder" type="number" step="1" value="0" />
+          </label>
+        </div>
+
+        <label>
+          <span>Beskrivelse</span>
+          <textarea id="description" name="description" rows="4" maxlength="600"></textarea>
+        </label>
+
+        <fieldset class="source-switcher">
+          <legend>Kildetype</legend>
+          <label class="radio-pill">
+            <input type="radio" name="sourceType" value="link" checked />
+            <span>Ekstern lenke</span>
+          </label>
+          <label class="radio-pill">
+            <input type="radio" name="sourceType" value="upload" />
+            <span>Last opp HTML</span>
+          </label>
+        </fieldset>
+
+        <div id="linkFields" class="stack-form nested-block">
+          <label>
+            <span>Lenke</span>
+            <input id="externalUrl" name="externalUrl" type="url" placeholder="https://…" />
+          </label>
+        </div>
+
+        <div id="uploadFields" class="stack-form nested-block hidden">
+          <label>
+            <span>HTML-fil</span>
+            <input id="htmlFile" name="htmlFile" type="file" accept=".html,text/html" />
+          </label>
+          <div id="existingHtmlNote" class="small-note hidden"></div>
+        </div>
+
+        <div class="field-row two-cols">
+          <label>
+            <span>Thumbnail-bilde</span>
+            <input id="thumbnailFile" name="thumbnailFile" type="file" accept="image/*" />
+          </label>
+          <div class="preview-column">
+            <span class="label-like">Forhåndsvisning</span>
+            <img id="thumbnailPreview" class="thumbnail-preview" alt="Thumbnail preview" />
+          </div>
+        </div>
+
+        <div class="toggle-row">
+          <label class="toggle-box">
+            <input id="enabledStudent" name="enabledStudent" type="checkbox" />
+            <span>Vis på elevsiden</span>
+          </label>
+          <label class="toggle-box">
+            <input id="enabledTeacher" name="enabledTeacher" type="checkbox" />
+            <span>Vis på lærersiden</span>
+          </label>
+        </div>
+
+        <div class="button-row">
+          <button id="saveToolButton" class="primary-button" type="submit">Lagre verktøy</button>
+          <button id="resetToolButton" class="ghost-button" type="button">Nullstill skjema</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel list-panel">
+      <div class="panel-head">
+        <div>
+          <h2>Eksisterende verktøy</h2>
+          <p class="muted">Direkte brytere for elev/lærer, rekkefølge, redigering og sletting.</p>
+        </div>
+      </div>
+      <div id="toolCount" class="status-line">0 verktøy</div>
+      <div id="adminGrid" class="card-grid admin-grid"></div>
+    </section>
+  </main>
+
+  <script type="module" src="/assets/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mattetools – elev</title>
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body data-page="hub" data-audience="student">
+  <header class="site-header">
+    <div class="container header-inner">
+      <div>
+        <p class="eyebrow">Mattetools</p>
+        <h1>Elevside</h1>
+        <p class="lead">Velg et verktøy.</p>
+      </div>
+      <nav class="top-nav">
+        <a href="/mattetoolsteacher.html">Lærerside</a>
+        <a href="/mattetoolsadmin.html">Admin</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container main-spacing">
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Tilgjengelige verktøy</h2>
+          <p class="muted">Viser verktøy som er slått på for elever.</p>
+        </div>
+        <button class="ghost-button" id="refreshHubButton" type="button">Oppdater</button>
+      </div>
+      <div id="hubStatus" class="status-line">Laster…</div>
+      <div id="hubGrid" class="card-grid"></div>
+    </section>
+  </main>
+
+  <script type="module" src="/assets/hub.js"></script>
+</body>
+</html>
