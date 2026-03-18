@@ -1,0 +1,17 @@
+{
+  "name": "mattetools-hubs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Student and teacher hubs with Netlify Functions and Neon storage",
+  "scripts": {
+    "dev": "netlify dev",
+    "start": "netlify dev"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
