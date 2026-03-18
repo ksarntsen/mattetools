@@ -1,23 +1,109 @@
 import { ensureSchema, sql } from './_lib/db.mjs';
 import {
   HttpError,
+  badRequest,
   json,
-  normalizeText,
-  parseDataUrl,
+  methodNotAllowed,
+  notFound,
   readJson,
-  requireAdmin,
-  serializeTool,
-  slugify,
-  toBool,
-  toInt,
-  validateHtmlContent,
-  validateHttpUrl,
-  validateThumbnailDataUrl
+  serverError
 } from './_lib/http.mjs';
 
 export const config = {
-  path: '/api/*'
+  path: ['/api/*']
 };
+
+function slugify(input) {
+  return String(input || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'tool';
+}
+
+function serializeTool(row) {
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    description: row.description,
+    sourceType: row.source_type,
+    externalUrl: row.external_url,
+    htmlFilename: row.html_filename,
+    enabledStudent: row.enabled_student,
+    enabledTeacher: row.enabled_teacher,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    thumbnailUrl: `/api/media/${row.id}`
+  };
+}
+
+function parseDataUrl(dataUrl) {
+  const match = /^data:([^;]+);base64,(.+)$/s.exec(dataUrl || '');
+  if (!match) {
+    throw new HttpError(400, 'Invalid thumbnail format.');
+  }
+  const mime = match[1];
+  const bytes = Uint8Array.from(Buffer.from(match[2], 'base64'));
+  return { mime, bytes };
+}
+
+function parseToolPayload(body, { isCreate }) {
+  const sourceType = body.sourceType;
+
+  if (sourceType !== 'link' && sourceType !== 'upload') {
+    throw badRequest('sourceType must be "link" or "upload".');
+  }
+
+  const title = String(body.title || '').trim();
+  if (isCreate && !title) {
+    throw badRequest('Title is required.');
+  }
+
+  const description = String(body.description || '').trim();
+
+  let externalUrl = null;
+  let htmlContent = null;
+  let htmlFilename = null;
+
+  if (sourceType === 'link') {
+    externalUrl = String(body.externalUrl || '').trim();
+    if (isCreate && !externalUrl) {
+      throw badRequest('External URL is required for link tools.');
+    }
+  } else {
+    htmlContent = String(body.htmlContent || '');
+    htmlFilename = String(body.htmlFilename || '').trim() || 'app.html';
+    if (isCreate && !htmlContent) {
+      throw badRequest('HTML content is required for uploaded tools.');
+    }
+  }
+
+  const thumbnailDataUrl = String(body.thumbnailDataUrl || '').trim();
+  if (isCreate && !thumbnailDataUrl) {
+    throw badRequest('Thumbnail is required.');
+  }
+
+  const enabledStudent = Boolean(body.enabledStudent);
+  const enabledTeacher = Boolean(body.enabledTeacher);
+  const sortOrder = Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0;
+
+  return {
+    title,
+    description,
+    sourceType,
+    externalUrl,
+    htmlContent,
+    htmlFilename,
+    thumbnailDataUrl,
+    enabledStudent,
+    enabledTeacher,
+    sortOrder
+  };
+}
 
 async function uniqueSlug(base) {
   const db = sql();
@@ -26,68 +112,18 @@ async function uniqueSlug(base) {
   let counter = 2;
 
   while (true) {
-    const result = await db.query('SELECT 1 FROM tools WHERE slug = $1 LIMIT 1', [candidate]);
-    if (result.rows.length === 0) return candidate;
+    const rows = await db.query('SELECT 1 FROM tools WHERE slug = $1 LIMIT 1', [candidate]);
+    if (rows.length === 0) return candidate;
     candidate = `${root}-${counter}`;
     counter += 1;
   }
 }
 
-function parseToolPayload(body, { isCreate = true } = {}) {
-  const title = normalizeText(body.title);
-  const description = normalizeText(body.description);
-  const sortOrder = toInt(body.sortOrder, 0);
-  const enabledStudent = toBool(body.enabledStudent);
-  const enabledTeacher = toBool(body.enabledTeacher);
-  const thumbnailDataUrl = validateThumbnailDataUrl(body.thumbnailDataUrl, { required: isCreate });
-
-  const externalUrlRaw = normalizeText(body.externalUrl);
-  const htmlContentRaw = body.htmlContent ? String(body.htmlContent) : '';
-  const htmlFilename = normalizeText(body.htmlFilename);
-
-  if (isCreate && !title) {
-    throw new HttpError(400, 'Title is required.');
-  }
-
-  let sourceType = null;
-  let externalUrl = null;
-  let htmlContent = null;
-
-  if (externalUrlRaw) {
-    sourceType = 'link';
-    externalUrl = validateHttpUrl(externalUrlRaw);
-  }
-
-  if (htmlContentRaw) {
-    if (sourceType) {
-      throw new HttpError(400, 'Choose either an external link or an uploaded HTML file, not both.');
-    }
-    sourceType = 'upload';
-    htmlContent = validateHtmlContent(htmlContentRaw);
-  }
-
-  if (isCreate && !sourceType) {
-    throw new HttpError(400, 'You must provide either an external link or an uploaded HTML file.');
-  }
-
-  return {
-    title,
-    description,
-    sortOrder,
-    enabledStudent,
-    enabledTeacher,
-    thumbnailDataUrl,
-    sourceType,
-    externalUrl,
-    htmlContent,
-    htmlFilename: htmlContent ? (htmlFilename || 'tool.html') : null
-  };
-}
-
 async function listPublicTools(audience) {
   const db = sql();
   const column = audience === 'teacher' ? 'enabled_teacher' : 'enabled_student';
-  const result = await db.query(
+
+  const rows = await db.query(
     `SELECT id, slug, title, description, source_type, external_url, html_filename,
             enabled_student, enabled_teacher, sort_order, created_at, updated_at
        FROM tools
@@ -95,19 +131,22 @@ async function listPublicTools(audience) {
       ORDER BY sort_order ASC, title ASC`,
     []
   );
-  return result.rows.map(serializeTool);
+
+  return rows.map(serializeTool);
 }
 
 async function listAdminTools() {
   const db = sql();
-  const result = await db.query(
+
+  const rows = await db.query(
     `SELECT id, slug, title, description, source_type, external_url, html_filename,
             enabled_student, enabled_teacher, sort_order, created_at, updated_at
        FROM tools
       ORDER BY sort_order ASC, title ASC`,
     []
   );
-  return result.rows.map(serializeTool);
+
+  return rows.map(serializeTool);
 }
 
 async function createTool(req) {
@@ -116,7 +155,7 @@ async function createTool(req) {
   const db = sql();
   const slug = await uniqueSlug(payload.title);
 
-  const created = await db.query(
+  const rows = await db.query(
     `INSERT INTO tools (
         slug, title, description, source_type, external_url, html_content, html_filename,
         thumbnail_data_url, enabled_student, enabled_teacher, sort_order
@@ -138,14 +177,16 @@ async function createTool(req) {
     ]
   );
 
-  return json({ ok: true, tool: serializeTool(created.rows[0]) }, { status: 201 });
+  return json({ ok: true, tool: serializeTool(rows[0]) }, { status: 201 });
 }
 
 async function updateTool(req, id) {
   const body = await readJson(req);
   const db = sql();
-  const existingResult = await db.query('SELECT * FROM tools WHERE id = $1 LIMIT 1', [id]);
-  const existing = existingResult.rows[0];
+
+  const existingRows = await db.query('SELECT * FROM tools WHERE id = $1 LIMIT 1', [id]);
+  const existing = existingRows[0];
+
   if (!existing) {
     throw new HttpError(404, 'Tool not found.');
   }
@@ -176,7 +217,7 @@ async function updateTool(req, id) {
   const enabledTeacher = body.enabledTeacher !== undefined ? payload.enabledTeacher : existing.enabled_teacher;
   const sortOrder = body.sortOrder !== undefined ? payload.sortOrder : existing.sort_order;
 
-  const updated = await db.query(
+  const rows = await db.query(
     `UPDATE tools
         SET title = $2,
             description = $3,
@@ -207,26 +248,31 @@ async function updateTool(req, id) {
     ]
   );
 
-  return json({ ok: true, tool: serializeTool(updated.rows[0]) });
+  return json({ ok: true, tool: serializeTool(rows[0]) });
 }
 
 async function deleteTool(id) {
   const db = sql();
-  const result = await db.query('DELETE FROM tools WHERE id = $1 RETURNING id', [id]);
-  if (result.rows.length === 0) {
+  const rows = await db.query('DELETE FROM tools WHERE id = $1 RETURNING id', [id]);
+
+  if (rows.length === 0) {
     throw new HttpError(404, 'Tool not found.');
   }
+
   return json({ ok: true });
 }
 
 async function serveMedia(id) {
   const db = sql();
-  const result = await db.query('SELECT thumbnail_data_url FROM tools WHERE id = $1 LIMIT 1', [id]);
-  const row = result.rows[0];
+  const rows = await db.query('SELECT thumbnail_data_url FROM tools WHERE id = $1 LIMIT 1', [id]);
+  const row = rows[0];
+
   if (!row?.thumbnail_data_url) {
     throw new HttpError(404, 'Thumbnail not found.');
   }
+
   const { mime, bytes } = parseDataUrl(row.thumbnail_data_url);
+
   return new Response(bytes, {
     headers: {
       'content-type': mime,
@@ -235,57 +281,86 @@ async function serveMedia(id) {
   });
 }
 
-export default async function handler(req) {
+export default async (req) => {
   try {
     await ensureSchema();
 
     const url = new URL(req.url);
-    const pathname = url.pathname.replace(/\/+$/, '') || '/';
-    const method = req.method.toUpperCase();
+    const path = url.pathname.replace(/^\/api/, '') || '/';
 
-    if (pathname === '/api/health' && method === 'GET') {
+    if (req.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'access-control-allow-origin': '*',
+          'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
+          'access-control-allow-headers': 'content-type,x-admin-password'
+        }
+      });
+    }
+
+    if (path === '/health' && req.method === 'GET') {
       return json({ ok: true });
     }
 
-    if (pathname === '/api/public-tools' && method === 'GET') {
+    if (path === '/public-tools' && req.method === 'GET') {
       const audience = url.searchParams.get('audience') === 'teacher' ? 'teacher' : 'student';
       const tools = await listPublicTools(audience);
       return json({ ok: true, tools });
     }
 
-    if (pathname === '/api/admin/tools' && method === 'GET') {
-      requireAdmin(req);
+    if (path.startsWith('/media/') && req.method === 'GET') {
+      const id = Number(path.split('/')[2]);
+      if (!Number.isFinite(id)) {
+        throw badRequest('Invalid media id.');
+      }
+      return await serveMedia(id);
+    }
+
+    const adminPassword =
+      req.headers.get('x-admin-password') ||
+      req.headers.get('X-Admin-Password') ||
+      '';
+
+    const expected =
+      process.env.ADMIN_PASSWORD ||
+      globalThis.Netlify?.env?.get?.('ADMIN_PASSWORD') ||
+      '';
+
+    if (!expected || adminPassword !== expected) {
+      throw new HttpError(401, 'Unauthorized.');
+    }
+
+    if (path === '/admin-tools' && req.method === 'GET') {
       const tools = await listAdminTools();
       return json({ ok: true, tools });
     }
 
-    if (pathname === '/api/admin/tools' && method === 'POST') {
-      requireAdmin(req);
+    if (path === '/admin-tools' && req.method === 'POST') {
       return await createTool(req);
     }
 
-    const adminMatch = pathname.match(/^\/api\/admin\/tools\/(\d+)$/);
-    if (adminMatch) {
-      requireAdmin(req);
-      const id = Number(adminMatch[1]);
-      if (method === 'PATCH' || method === 'PUT') {
+    if (path.startsWith('/admin-tools/')) {
+      const id = Number(path.split('/')[2]);
+      if (!Number.isFinite(id)) {
+        throw badRequest('Invalid tool id.');
+      }
+
+      if (req.method === 'PUT') {
         return await updateTool(req, id);
       }
-      if (method === 'DELETE') {
+
+      if (req.method === 'DELETE') {
         return await deleteTool(id);
       }
     }
 
-    const mediaMatch = pathname.match(/^\/api\/media\/(\d+)$/);
-    if (mediaMatch && method === 'GET') {
-      return await serveMedia(Number(mediaMatch[1]));
-    }
-
-    return json({ ok: false, error: 'Not found.' }, { status: 404 });
+    return notFound('Route not found.');
   } catch (error) {
+    if (error instanceof HttpError) {
+      return json({ ok: false, error: error.message }, { status: error.status });
+    }
     console.error(error);
-    const status = error instanceof HttpError ? error.status : 500;
-    const message = error instanceof HttpError ? error.message : 'Internal server error.';
-    return json({ ok: false, error: message }, { status });
+    return serverError();
   }
-}
+};
